@@ -6,6 +6,7 @@ import time
 import select
 import binascii
 # Should use stdev
+from statistics import stdev
 
 ICMP_ECHO_REQUEST = 8
 
@@ -46,15 +47,22 @@ def receiveOnePing(mySocket, ID, timeout, destAddr):
 
        timeReceived = time.time()
        recPacket, addr = mySocket.recvfrom(1024)
-
+       round_trip = (timeReceived - startedSelect) * 1000
        # Fill in start
 
        # Fetch the ICMP header from the IP packet
+       header_length = (recPacket[0] & 0x0F) * 4
 
-       # Fill in end
-       timeLeft = timeLeft - howLongInSelect
-       if timeLeft <= 0:
-           return "Request timed out."
+       icmp_type = recPacket[header_length]
+       if icmp_type == 0:
+           ttl = (recPacket[8] & 0xF0) >> 4
+           total_length = (recPacket[2] << 8) | recPacket[3]
+           print("Reply from " + addr[0] + ": bytes=" + str(total_length) + " time=" + str(round(round_trip, 7)) + "ms TTL=" + str(ttl))
+           return round_trip
+       else:
+           timeLeft = timeLeft - howLongInSelect
+           if timeLeft <= 0:
+               return "Request timed out."
 
 
 def sendOnePing(mySocket, destAddr, ID):
@@ -101,19 +109,39 @@ def doOnePing(destAddr, timeout):
 
 
 def ping(host, timeout=1):
-   # timeout=1 means: If one second goes by without a reply from the server,      # the client assumes that either the client's ping or the server's pong is lost
+   # timeout=1 means: If one second goes by without a reply from the server,
+   # the client assumes that either the client's ping or the server's pong is lost
    dest = gethostbyname(host)
    print("Pinging " + dest + " using Python:")
    print("")
    # Calculate vars values and return them
-   #  vars = [str(round(packet_min, 2)), str(round(packet_avg, 2)), str(round(packet_max, 2)),str(round(stdev(stdev_var), 2))]
+
+
    # Send ping requests to a server separated by approximately one second
+   delays = []
+   n = 0
    for i in range(0,4):
        delay = doOnePing(dest, timeout)
-       print(delay)
+       if delay != "Request timed out.":
+           n = n + 1
+           delays.append(delay)
+
        time.sleep(1)  # one second
 
+   if len(delays) > 0:
+       vars = [str(round(min(delays), 2)), str(round(sum(delays) / len(delays), 2)),
+               str(round(max(delays), 2)), str(round(stdev(delays), 2))]
+   else:
+       vars = ['0', '0.0', '0', '0.0']
+
+   pkt_loss = (4 - n) / 4.0 * 100
+   print("")
+   print("--- " + host + " statistics ---")
+   print("4 packets transmitted, " + str(n) + " packets received, " + str(round(pkt_loss, 1)) + "% packet loss")
+   print("round-trip min/avg/max/stddev = " + vars[0] + "/" + vars[1] + "/" + vars[2] + "/" + vars[3] + " ms")
    return vars
 
 if __name__ == '__main__':
+   #ping("no.no.e")
    ping("google.co.il")
+
